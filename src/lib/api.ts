@@ -5,6 +5,7 @@ import type {
   BotConfigUpdate,
   Platform,
   RecordingData,
+  RecordingConfig,
 } from "@/types/vexa";
 
 class VexaAPIError extends Error {
@@ -315,6 +316,55 @@ export const vexaAPI = {
   // Recordings - get the proxied URL for streaming audio via /raw endpoint
   getRecordingAudioUrl(recordingId: number, mediaFileId: number): string {
     return `/api/vexa/recordings/${recordingId}/media/${mediaFileId}/raw`;
+  },
+
+  // [LOCAL-FORK] Recording & Vision config
+  async getRecordingConfig(): Promise<RecordingConfig> {
+    const response = await fetch("/api/vexa/recording-config");
+    return handleResponse<RecordingConfig>(response);
+  },
+
+  async updateRecordingConfig(config: Partial<RecordingConfig>): Promise<RecordingConfig> {
+    const response = await fetch("/api/vexa/recording-config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    return handleResponse<RecordingConfig>(response);
+  },
+
+  // [LOCAL-FORK] Avatar management (routes through /api/avatar/upload to bot-manager directly)
+  async getAvatar(): Promise<{ avatar_url: string | null }> {
+    const response = await fetch("/api/avatar/upload");
+    return handleResponse<{ avatar_url: string | null }>(response);
+  },
+
+  async uploadAvatar(file: File): Promise<{ avatar_url: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/avatar/upload", {
+      method: "POST",
+      body: formData,
+    });
+    return handleResponse<{ avatar_url: string }>(response);
+  },
+
+  async uploadAvatarFromUrl(imageUrl: string): Promise<{ avatar_url: string }> {
+    const response = await fetch("/api/avatar/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_url: imageUrl }),
+    });
+    return handleResponse<{ avatar_url: string }>(response);
+  },
+
+  async deleteAvatar(): Promise<void> {
+    const response = await fetch("/api/avatar/upload", {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new VexaAPIError("Failed to delete avatar", response.status);
+    }
   },
 
   // Connection test

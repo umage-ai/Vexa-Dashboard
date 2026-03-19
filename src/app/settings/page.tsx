@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Settings, CheckCircle2, XCircle, Loader2, ExternalLink, Sparkles, AlertCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Settings, CheckCircle2, XCircle, Loader2, ExternalLink, Sparkles, AlertCircle, Camera, Eye, Upload, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { vexaAPI } from "@/lib/api";
 import { AdminGuard } from "@/components/admin/admin-guard";
+import type { RecordingConfig } from "@/types/vexa";
 
 interface AIConfig {
   enabled: boolean;
@@ -25,6 +26,16 @@ interface RuntimeConfig {
   apiUrl: string;
 }
 
+// [LOCAL-FORK] Pre-generated avatar presets
+const AVATAR_PRESETS = [
+  { name: "Robot (Purple)", file: "/avatars/robot-purple.png" },
+  { name: "Robot (Teal)", file: "/avatars/robot-teal.png" },
+  { name: "Owl", file: "/avatars/owl-orange.png" },
+  { name: "AI Silhouette", file: "/avatars/silhouette-gold.png" },
+  { name: "Microphone", file: "/avatars/mic-green.png" },
+  { name: "Brain", file: "/avatars/brain-cyan.png" },
+];
+
 function SettingsContent() {
   const [isTesting, setIsTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<"unknown" | "connected" | "error">("unknown");
@@ -32,6 +43,19 @@ function SettingsContent() {
   const [aiConfig, setAIConfig] = useState<AIConfig | null>(null);
   const [isLoadingAIConfig, setIsLoadingAIConfig] = useState(true);
   const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig | null>(null);
+
+  // [LOCAL-FORK] Avatar state
+  const [currentAvatar, setCurrentAvatar] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // [LOCAL-FORK] Vision snapshot state
+  const [visionConfig, setVisionConfig] = useState<RecordingConfig | null>(null);
+  const [isLoadingVisionConfig, setIsLoadingVisionConfig] = useState(true);
+  const [isSavingVision, setIsSavingVision] = useState(false);
+  const [visionEnabled, setVisionEnabled] = useState(false);
+  const [visionInterval, setVisionInterval] = useState(30);
+  const [visionModel, setVisionModel] = useState("qwen3-vl:8b");
 
   // Fetch configurations on mount
   useEffect(() => {
@@ -56,9 +80,100 @@ function SettingsContent() {
       } finally {
         setIsLoadingAIConfig(false);
       }
+
+      // [LOCAL-FORK] Fetch avatar preview via proxy (MinIO URLs are internal-only)
+      try {
+        const avatarData = await vexaAPI.getAvatar();
+        if (avatarData.avatar_url) {
+          setCurrentAvatar("/api/avatar/image");
+        }
+      } catch {
+        // Avatar endpoint may not exist yet
+      }
+
+      // [LOCAL-FORK] Fetch vision/recording config
+      try {
+        const rc = await vexaAPI.getRecordingConfig();
+        setVisionConfig(rc);
+        setVisionEnabled(rc.vision_snapshots_enabled ?? false);
+        setVisionInterval(Math.round((rc.vision_snapshot_interval_ms ?? 30000) / 1000));
+        setVisionModel(rc.vision_model ?? "qwen3-vl:8b");
+      } catch {
+        // Recording config may not exist yet
+      } finally {
+        setIsLoadingVisionConfig(false);
+      }
     }
     fetchConfigs();
   }, []);
+
+  // [LOCAL-FORK] Avatar handlers
+  const handleAvatarPresetSelect = async (presetFile: string) => {
+    setIsUploadingAvatar(true);
+    try {
+      const fullUrl = `${window.location.origin}${presetFile}`;
+      await vexaAPI.uploadAvatarFromUrl(fullUrl);
+      // Use the local preset path for preview (MinIO URL won't resolve in browser)
+      setCurrentAvatar(presetFile);
+      toast.success("Avatar updated");
+    } catch (error) {
+      toast.error("Failed to set avatar", { description: (error as Error).message });
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("File too large", { description: "Maximum size is 2MB" });
+      return;
+    }
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      toast.error("Invalid format", { description: "Only PNG and JPG are supported" });
+      return;
+    }
+    setIsUploadingAvatar(true);
+    try {
+      await vexaAPI.uploadAvatar(file);
+      // Create a local blob URL for preview (MinIO URL won't resolve in browser)
+      setCurrentAvatar(URL.createObjectURL(file));
+      toast.success("Avatar uploaded");
+    } catch (error) {
+      toast.error("Failed to upload avatar", { description: (error as Error).message });
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleAvatarDelete = async () => {
+    try {
+      await vexaAPI.deleteAvatar();
+      setCurrentAvatar(null);
+      toast.success("Avatar reset to default");
+    } catch (error) {
+      toast.error("Failed to reset avatar", { description: (error as Error).message });
+    }
+  };
+
+  // [LOCAL-FORK] Vision config save
+  const handleSaveVisionConfig = async () => {
+    setIsSavingVision(true);
+    try {
+      const updated = await vexaAPI.updateRecordingConfig({
+        vision_snapshots_enabled: visionEnabled,
+        vision_snapshot_interval_ms: visionInterval * 1000,
+        vision_model: visionModel,
+      });
+      setVisionConfig(updated);
+      toast.success("Vision settings saved");
+    } catch (error) {
+      toast.error("Failed to save vision settings", { description: (error as Error).message });
+    } finally {
+      setIsSavingVision(false);
+    }
+  };
 
   const handleTestConnection = async () => {
     setIsTesting(true);
@@ -283,6 +398,175 @@ function SettingsContent() {
                   <code className="bg-muted px-1 rounded">AI_API_KEY</code> environment variables to enable AI features.
                 </p>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* [LOCAL-FORK] Bot Avatar */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5" />
+              Bot Avatar
+            </CardTitle>
+            <CardDescription>
+              Choose an avatar for the bot&apos;s camera feed in meetings. Select a preset or upload your own.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Current avatar */}
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 rounded-full overflow-hidden bg-muted border-2 border-border flex items-center justify-center">
+                {currentAvatar ? (
+                  <img src={currentAvatar} alt="Current avatar" className="h-full w-full object-cover" />
+                ) : (
+                  <Camera className="h-8 w-8 text-muted-foreground" />
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="font-medium">{currentAvatar ? "Custom Avatar" : "Default (Vexa Logo)"}</p>
+                <p className="text-xs text-muted-foreground">Applied automatically to all meetings</p>
+                {currentAvatar && (
+                  <Button variant="ghost" size="sm" onClick={handleAvatarDelete} className="text-destructive h-7 px-2">
+                    <Trash2 className="h-3 w-3 mr-1" /> Reset
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Preset grid */}
+            <div className="space-y-2">
+              <Label>Presets</Label>
+              <div className="grid grid-cols-3 gap-3">
+                {AVATAR_PRESETS.map((preset) => (
+                  <button
+                    key={preset.file}
+                    onClick={() => handleAvatarPresetSelect(preset.file)}
+                    disabled={isUploadingAvatar}
+                    className="group relative rounded-lg overflow-hidden border-2 border-border hover:border-primary transition-colors aspect-square"
+                  >
+                    <img src={preset.file} alt={preset.name} className="w-full h-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1">
+                      <span className="text-[10px] text-white">{preset.name}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Upload custom */}
+            <div className="flex items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingAvatar}
+              >
+                {isUploadingAvatar ? (
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading...</>
+                ) : (
+                  <><Upload className="mr-2 h-4 w-4" /> Upload Custom</>
+                )}
+              </Button>
+              <span className="text-xs text-muted-foreground">PNG or JPG, max 2MB</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* [LOCAL-FORK] Vision Snapshots */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Vision Snapshots
+            </CardTitle>
+            <CardDescription>
+              Periodically capture screenshots during meetings and analyze them with a local vision LLM.
+              Descriptions appear inline in the transcript.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {isLoadingVisionConfig ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading configuration...</span>
+              </div>
+            ) : (
+              <>
+                {/* Enable toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label>Enable Vision Snapshots</Label>
+                    <p className="text-xs text-muted-foreground">Take periodic screenshots and describe them with AI</p>
+                  </div>
+                  <Button
+                    variant={visionEnabled ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setVisionEnabled(!visionEnabled)}
+                  >
+                    {visionEnabled ? "Enabled" : "Disabled"}
+                  </Button>
+                </div>
+
+                {visionEnabled && (
+                  <>
+                    <Separator />
+
+                    {/* Interval */}
+                    <div className="space-y-2">
+                      <Label htmlFor="visionInterval">Snapshot Interval (seconds)</Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          id="visionInterval"
+                          min={10}
+                          max={120}
+                          step={5}
+                          value={visionInterval}
+                          onChange={(e) => setVisionInterval(Number(e.target.value))}
+                          className="flex-1"
+                        />
+                        <span className="text-sm font-mono w-12 text-right">{visionInterval}s</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        How often to capture and analyze the screen (10–120 seconds)
+                      </p>
+                    </div>
+
+                    {/* Vision model */}
+                    <div className="space-y-2">
+                      <Label htmlFor="visionModel">Vision Model (Ollama)</Label>
+                      <Input
+                        id="visionModel"
+                        value={visionModel}
+                        onChange={(e) => setVisionModel(e.target.value)}
+                        placeholder="qwen3-vl:8b"
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Ollama model with vision capabilities (e.g. qwen3-vl:8b, qwen3-vl:32b, llava:13b)
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* Save button */}
+                <Button onClick={handleSaveVisionConfig} disabled={isSavingVision}>
+                  {isSavingVision ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
+                  ) : (
+                    "Save Vision Settings"
+                  )}
+                </Button>
+              </>
             )}
           </CardContent>
         </Card>

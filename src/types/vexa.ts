@@ -439,6 +439,27 @@ export interface RecordingData {
 }
 
 // ==========================================
+// [LOCAL-FORK] Vision Snapshot & Recording Config Types
+// ==========================================
+
+export interface VisionSnapshot {
+  id: string;
+  timestamp: number; // relative seconds
+  absolute_timestamp: string;
+  description: string;
+  thumbnail_url?: string;
+  speaker: "[Vision]";
+}
+
+export interface RecordingConfig {
+  enabled: boolean;
+  capture_modes: string[];
+  vision_snapshots_enabled: boolean;
+  vision_snapshot_interval_ms: number;
+  vision_model: string;
+}
+
+// ==========================================
 // Admin API Types
 // ==========================================
 
