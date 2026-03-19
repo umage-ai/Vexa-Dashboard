@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { Search, Download, FileText, FileJson, FileVideo, X, Users, MessageSquare, Wifi, WifiOff, Loader2, AlertCircle, Sparkles, Settings, ChevronDown } from "lucide-react";
+import { Search, Download, FileText, FileJson, FileVideo, X, Users, MessageSquare, Wifi, WifiOff, Loader2, AlertCircle, Sparkles, Settings, ChevronDown, Eye } from "lucide-react"; // [LOCAL-FORK] Added Eye icon for vision snapshots
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1006,6 +1006,58 @@ export function TranscriptViewer({
 
                 // ---- Transcript group item ----
                 const { group, index } = item;
+
+                // [LOCAL-FORK] Vision snapshot rendering for segments with speaker="[Vision]"
+                if (group.speaker === "[Vision]") {
+                  const visionTime = (() => {
+                    try {
+                      const timeMatch = group.startTime.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+                      if (timeMatch) {
+                        return `${timeMatch[1]}:${timeMatch[2]}:${timeMatch[3] ?? "00"}`;
+                      }
+                    } catch { /* ignore */ }
+                    const mins = Math.floor(group.startTimeSeconds / 60);
+                    const secs = Math.floor(group.startTimeSeconds % 60);
+                    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+                  })();
+
+                  return (
+                    <div
+                      key={`vision-${group.startTime}-${index}`}
+                      className="animate-fade-in"
+                      style={{
+                        animationDelay: isLive ? "0ms" : `${Math.min(index * 20, 200)}ms`,
+                        animationFillMode: "backwards",
+                      }}
+                    >
+                      <div className="flex gap-3 p-3 rounded-lg bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/40">
+                        {/* Vision icon */}
+                        <div className="h-8 w-8 flex-shrink-0 rounded-full bg-sky-500 flex items-center justify-center">
+                          <Eye className="h-4 w-4 text-white" />
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-sm text-sky-700 dark:text-sky-400">
+                              Vision
+                            </span>
+                            <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-sky-300 dark:border-sky-700 text-sky-600 dark:text-sky-400">
+                              snapshot
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {visionTime}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                            {searchQuery ? highlightChatText(group.combinedText, searchQuery) : group.combinedText}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                // [LOCAL-FORK] End vision snapshot rendering
 
                 // Create a synthetic segment for the grouped segment
                 const syntheticSegment: TranscriptSegmentType = {
