@@ -367,6 +367,32 @@ export const vexaAPI = {
     }
   },
 
+  // [LOCAL-FORK] Meeting summary (routed through /api/summary/ proxy to bot-manager)
+  async generateSummary(platform: Platform, nativeId: string): Promise<{ summary: string; generated_at: string }> {
+    const response = await fetch(`/api/summary/meetings/${platform}/${nativeId}/summary`, { method: "POST" });
+    return handleResponse(response);
+  },
+
+  async getSummary(platform: Platform, nativeId: string): Promise<{ summary: string; generated_at: string } | null> {
+    const response = await fetch(`/api/summary/meetings/${platform}/${nativeId}/summary`);
+    if (response.status === 404) return null;
+    return handleResponse(response);
+  },
+
+  async getSummaryConfig(): Promise<{ prompt: string }> {
+    const response = await fetch("/api/summary/user/summary-config");
+    return handleResponse(response);
+  },
+
+  async updateSummaryConfig(prompt: string): Promise<{ prompt: string }> {
+    const response = await fetch("/api/summary/user/summary-config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    return handleResponse(response);
+  },
+
   // Connection test
   async testConnection(): Promise<{ success: boolean; error?: string }> {
     try {

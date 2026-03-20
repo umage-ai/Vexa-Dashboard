@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Settings, CheckCircle2, XCircle, Loader2, ExternalLink, Sparkles, AlertCircle, Camera, Eye, Upload, Trash2 } from "lucide-react";
+import { Settings, CheckCircle2, XCircle, Loader2, ExternalLink, Sparkles, AlertCircle, Camera, Eye, Upload, Trash2, ScrollText } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -57,6 +58,11 @@ function SettingsContent() {
   const [visionInterval, setVisionInterval] = useState(30);
   const [visionModel, setVisionModel] = useState("qwen3-vl:8b");
 
+  // [LOCAL-FORK] Summary config state
+  const [summaryPrompt, setSummaryPrompt] = useState("");
+  const [isLoadingSummaryConfig, setIsLoadingSummaryConfig] = useState(true);
+  const [isSavingSummaryConfig, setIsSavingSummaryConfig] = useState(false);
+
   // Fetch configurations on mount
   useEffect(() => {
     async function fetchConfigs() {
@@ -102,6 +108,16 @@ function SettingsContent() {
         // Recording config may not exist yet
       } finally {
         setIsLoadingVisionConfig(false);
+      }
+
+      // [LOCAL-FORK] Fetch summary config
+      try {
+        const sc = await vexaAPI.getSummaryConfig();
+        setSummaryPrompt(sc.prompt || "");
+      } catch {
+        // Summary config endpoint may not exist yet
+      } finally {
+        setIsLoadingSummaryConfig(false);
       }
     }
     fetchConfigs();
@@ -172,6 +188,20 @@ function SettingsContent() {
       toast.error("Failed to save vision settings", { description: (error as Error).message });
     } finally {
       setIsSavingVision(false);
+    }
+  };
+
+  // [LOCAL-FORK] Summary config save
+  const handleSaveSummaryConfig = async () => {
+    setIsSavingSummaryConfig(true);
+    try {
+      const updated = await vexaAPI.updateSummaryConfig(summaryPrompt);
+      setSummaryPrompt(updated.prompt || "");
+      toast.success("Summary prompt saved");
+    } catch (error) {
+      toast.error("Failed to save summary prompt", { description: (error as Error).message });
+    } finally {
+      setIsSavingSummaryConfig(false);
     }
   };
 
@@ -564,6 +594,53 @@ function SettingsContent() {
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
                   ) : (
                     "Save Vision Settings"
+                  )}
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* [LOCAL-FORK] Meeting Summary Config */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ScrollText className="h-5 w-5" />
+              Meeting Summary
+            </CardTitle>
+            <CardDescription>
+              Customize the prompt used to generate AI meeting summaries. Leave empty to use the server default.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {isLoadingSummaryConfig ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading configuration...</span>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="summaryPrompt">Summary Prompt</Label>
+                  <Textarea
+                    id="summaryPrompt"
+                    value={summaryPrompt}
+                    onChange={(e) => setSummaryPrompt(e.target.value)}
+                    placeholder="You are an expert meeting summarizer. Produce a concise summary with key decisions, action items, and discussion points..."
+                    rows={5}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This prompt is sent alongside the transcript when generating a meeting summary.
+                    The transcript is appended automatically.
+                  </p>
+                </div>
+
+                <Button onClick={handleSaveSummaryConfig} disabled={isSavingSummaryConfig}>
+                  {isSavingSummaryConfig ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
+                  ) : (
+                    "Save Summary Prompt"
                   )}
                 </Button>
               </>

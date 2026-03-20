@@ -26,7 +26,12 @@ import {
   ExternalLink,
   Trash2,
   Zap,
+  ScrollText,
+  RefreshCw,
 } from "lucide-react";
+// [LOCAL-FORK] Meeting summary markdown rendering
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { AudioPlayer, type AudioPlayerHandle, type AudioFragment } from "@/components/recording/audio-player";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,6 +112,14 @@ export default function MeetingDetailPage() {
 
   // Decisions panel state
   const [decisionsOpen, setDecisionsOpen] = useState(false);
+
+  // [LOCAL-FORK] Summary panel state
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryGeneratedAt, setSummaryGeneratedAt] = useState<string | null>(null);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
 
   // Title editing state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -242,6 +255,41 @@ export default function MeetingDetailPage() {
 
   // Track if initial load is complete to prevent animation replays
   const hasLoadedRef = useRef(false);
+
+  // [LOCAL-FORK] Load summary when panel opens
+  useEffect(() => {
+    if (!summaryOpen || summaryLoaded || !currentMeeting) return;
+    setIsLoadingSummary(true);
+    vexaAPI.getSummary(currentMeeting.platform, currentMeeting.platform_specific_id)
+      .then((data) => {
+        if (data) {
+          setSummary(data.summary);
+          setSummaryGeneratedAt(data.generated_at);
+        }
+        setSummaryLoaded(true);
+      })
+      .catch((err) => {
+        console.error("Failed to load summary:", err);
+        setSummaryLoaded(true);
+      })
+      .finally(() => setIsLoadingSummary(false));
+  }, [summaryOpen, summaryLoaded, currentMeeting]);
+
+  // [LOCAL-FORK] Generate summary handler
+  const handleGenerateSummary = useCallback(async () => {
+    if (!currentMeeting) return;
+    setIsGeneratingSummary(true);
+    try {
+      const data = await vexaAPI.generateSummary(currentMeeting.platform, currentMeeting.platform_specific_id);
+      setSummary(data.summary);
+      setSummaryGeneratedAt(data.generated_at);
+      toast.success("Summary generated");
+    } catch (err) {
+      toast.error("Failed to generate summary", { description: (err as Error).message });
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  }, [currentMeeting]);
 
   // Handle meeting status change from WebSocket
   const handleStatusChange = useCallback((status: MeetingStatus) => {
@@ -954,6 +1002,17 @@ export default function MeetingDetailPage() {
           >
             <Zap className="h-4 w-4 text-amber-500" />
             <span className="hidden sm:inline">Decisions</span>
+          </Button>
+
+          {/* [LOCAL-FORK] Summary panel toggle */}
+          <Button
+            variant={summaryOpen ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1.5 h-9"
+            onClick={() => setSummaryOpen((v) => !v)}
+          >
+            <ScrollText className="h-4 w-4 text-blue-500" />
+            <span className="hidden sm:inline">Summary</span>
           </Button>
         </div>
       </div>
@@ -1669,6 +1728,102 @@ export default function MeetingDetailPage() {
             isActive={currentMeeting.status === "active"}
             embedded
           />
+        </div>
+      </div>
+
+      {/* [LOCAL-FORK] Summary slide-over panel */}
+      {/* Backdrop */}
+      {summaryOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={() => setSummaryOpen(false)}
+        />
+      )}
+      {/* Panel */}
+      <div
+        className={cn(
+          "fixed inset-y-0 right-0 z-50 flex flex-col w-full sm:w-[480px]",
+          "bg-background border-l shadow-2xl",
+          "transform transition-transform duration-300 ease-in-out",
+          summaryOpen ? "translate-x-0" : "translate-x-full"
+        )}
+      >
+        {/* Panel header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+          <div className="flex items-center gap-2">
+            <ScrollText className="h-4 w-4 text-blue-500" />
+            <span className="font-semibold text-sm">Meeting Summary</span>
+          </div>
+          <div className="flex items-center gap-1">
+            {summary && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleGenerateSummary}
+                disabled={isGeneratingSummary}
+                title="Regenerate summary"
+              >
+                <RefreshCw className={cn("h-4 w-4", isGeneratingSummary && "animate-spin")} />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setSummaryOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        {/* Panel content — scrollable */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {isLoadingSummary ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <span>Loading summary...</span>
+            </div>
+          ) : isGeneratingSummary ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <span>Generating summary...</span>
+            </div>
+          ) : summary ? (
+            <div className="space-y-3">
+              {summaryGeneratedAt && (
+                <p className="text-xs text-muted-foreground">
+                  Generated {format(new Date(summaryGeneratedAt), "PPp")}
+                </p>
+              )}
+              <div className="prose dark:prose-invert max-w-none prose-sm">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {summary}
+                </ReactMarkdown>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <ScrollText className="h-10 w-10 text-muted-foreground mb-3" />
+              <h3 className="font-medium mb-1">No Summary Yet</h3>
+              <p className="text-sm text-muted-foreground mb-4 max-w-xs">
+                Generate an AI-powered summary of this meeting&apos;s transcript.
+              </p>
+              <Button onClick={handleGenerateSummary} disabled={isGeneratingSummary}>
+                {isGeneratingSummary ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Generate Summary
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
